@@ -20,7 +20,9 @@ const FUEL_TABS = [
   { label: 'E10', value: 'e10' },
 ]
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+const API_URL = window.location.hostname === 'localhost'
+  ? 'http://localhost:3001'
+  : 'https://gasify-api.onrender.com'
 
 function getPriceColor(price) {
   if (price <= 1.60) return '#22c55e'
@@ -101,7 +103,7 @@ export default function App() {
     if (locationStatus === 'granted' || locationStatus === 'denied') {
       loadStations()
     }
-  }, [activeTab, userLocation])
+  }, [activeTab, userLocation, locationStatus])
 
   function getUserLocation() {
     setLocationStatus('asking')
@@ -226,7 +228,6 @@ export default function App() {
                 fontSize: 11,
                 fontWeight: 600,
                 cursor: 'pointer',
-                textTransform: 'capitalize'
               }}
             >{s === 'distance' ? '📍 Nearest first' : '💰 Cheapest first'}</button>
           ))}
