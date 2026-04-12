@@ -25,10 +25,18 @@ app.get('/api/stations', async (req, res) => {
 
     const url = 'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records?limit=200'
     const response = await fetch(url)
-    const data = await response.json()
+    const raw = await response.json()
 
-    let stations = data.results
-      .filter(s => s[priceField] && s.geom)
+    // Handle unexpected API response shape
+    const results = Array.isArray(raw?.results) ? raw.results : []
+
+    if (results.length === 0) {
+      console.log('No results from API, raw keys:', Object.keys(raw || {}))
+      return res.json([])
+    }
+
+    let stations = results
+      .filter(s => s[priceField] != null && s.geom != null)
       .map((s, i) => ({
         id: 'fr_' + i,
         name: s.adresse || 'Station ' + i,
@@ -60,7 +68,7 @@ app.get('/api/stations', async (req, res) => {
         .slice(0, 50)
     }
 
-    console.log(`Returning ${stations.length} stations for fuel: ${fuel}, location: ${userLat},${userLng}`)
+    console.log(`Returning ${stations.length} stations for fuel: ${fuel}`)
     res.json(stations)
   } catch (e) {
     console.log('Error:', e.message)
