@@ -20,9 +20,6 @@ const FUEL_TABS = [
   { label: 'E10', value: 'e10' },
 ]
 
-const [searchQuery, setSearchQuery] = useState('');
-const [isSearching, setIsSearching] = useState(false);
-
 const API_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:3001'
   : 'https://gasify-api.onrender.com'
@@ -285,7 +282,6 @@ export default function App() {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           <FlyTo target={mapTarget} zoom={mapZoom} />
-
           {userLocation && (
             <Marker
               position={[userLocation.lat, userLocation.lng]}
@@ -298,7 +294,6 @@ export default function App() {
               </Popup>
             </Marker>
           )}
-
           {stations.map(station => (
             <Marker
               key={station.id}
