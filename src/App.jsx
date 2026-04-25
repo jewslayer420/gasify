@@ -20,6 +20,9 @@ const FUEL_TABS = [
   { label: 'E10', value: 'e10' },
 ]
 
+const [searchQuery, setSearchQuery] = useState('');
+const [isSearching, setIsSearching] = useState(false);
+
 const API_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:3001'
   : 'https://gasify-api.onrender.com'

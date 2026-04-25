@@ -23,19 +23,26 @@ app.get('/api/stations', async (req, res) => {
     const userLng = parseFloat(req.query.lng) || null
     const priceField = fuel + '_prix'
 
-    const url = 'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records?limit=200'
-    const response = await fetch(url)
-    const raw = await response.json()
+    const url = `https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records?limit=100&timezone=Europe%2FParis`
 
-    // Handle unexpected API response shape
-    const results = Array.isArray(raw?.results) ? raw.results : []
+    const res2 = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+      }
+    })
 
-    if (results.length === 0) {
-      console.log('No results from API, raw keys:', Object.keys(raw || {}))
+    const raw = await res2.json()
+
+    console.log('Raw keys:', Object.keys(raw || {}))
+    console.log('Results count:', raw?.results?.length)
+
+    if (!raw || !Array.isArray(raw.results)) {
+      console.log('No results found')
       return res.json([])
     }
 
-    let stations = results
+    let stations = raw.results
       .filter(s => s[priceField] != null && s.geom != null)
       .map((s, i) => ({
         id: 'fr_' + i,
