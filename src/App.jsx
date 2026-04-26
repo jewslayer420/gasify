@@ -70,6 +70,26 @@ function FlyTo({ target, zoom }) {
   return null
 }
 
+async function geocodeCity(city) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=1`
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Gasify/1.0' }
+    })
+    const data = await res.json()
+    if (data.length > 0) {
+      return {
+        lat: parseFloat(data[0].lat),
+        lng: parseFloat(data[0].lon),
+        name: data[0].display_name.split(',')[0]
+      }
+    }
+    return null
+  } catch (e) {
+    return null
+  }
+}
+
 async function fetchStations(fuel, lat, lng) {
   try {
     let url = `${API_URL}/api/stations?fuel=${fuel}`
@@ -94,16 +114,35 @@ export default function App() {
   const [mapTarget, setMapTarget] = useState(null)
   const [mapZoom, setMapZoom] = useState(6)
   const [sortBy, setSortBy] = useState('distance')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchLocation, setSearchLocation] = useState(null)
+  const [activeLocation, setActiveLocation] = useState(null)
 
-  useEffect(() => {
-    getUserLocation()
-  }, [])
+ useEffect(() => {
+  getUserLocation()
+
+  // Auto refresh location every 2 minutes
+  const interval = setInterval(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+          setUserLocation(loc)
+          setActiveLocation(loc)
+        },
+        () => {}
+      )
+    }
+  }, 2 * 60 * 1000)
+
+  return () => clearInterval(interval)
+}, [])
 
   useEffect(() => {
     if (locationStatus === 'granted' || locationStatus === 'denied') {
-      loadStations()
+      loadStations(activeLocation)
     }
-  }, [activeTab, userLocation, locationStatus])
+  }, [activeTab, activeLocation, locationStatus])
 
   function getUserLocation() {
     setLocationStatus('asking')
@@ -115,23 +154,40 @@ export default function App() {
       (pos) => {
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
         setUserLocation(loc)
+        setActiveLocation(loc)
         setMapTarget([loc.lat, loc.lng])
         setMapZoom(12)
         setLocationStatus('granted')
       },
       () => {
         setLocationStatus('denied')
-        setMapTarget([46.6034, 1.8883])
-        setMapZoom(6)
+        setMapTarget([46.0569, 14.5058])
+        setMapZoom(10)
       }
     )
   }
 
-  async function loadStations() {
+  async function handleSearch() {
+    if (!searchQuery.trim()) return
+    setLoading(true)
+    const result = await geocodeCity(searchQuery)
+    if (result) {
+      const loc = { lat: result.lat, lng: result.lng }
+      setSearchLocation(loc)
+      setActiveLocation(loc)
+      setMapTarget([loc.lat, loc.lng])
+      setMapZoom(12)
+    } else {
+      alert('City not found. Try again!')
+      setLoading(false)
+    }
+  }
+
+  async function loadStations(location) {
     setLoading(true)
     setSelected(null)
-    const lat = userLocation?.lat || null
-    const lng = userLocation?.lng || null
+    const lat = location?.lat || null
+    const lng = location?.lng || null
     const real = await fetchStations(activeTab, lat, lng)
     if (real.length > 0) {
       setStations(real)
@@ -158,6 +214,45 @@ export default function App() {
           </span>
         </div>
 
+        {/* Search bar */}
+        <div style={{
+          padding: '10px 16px',
+          borderBottom: '1px solid #222',
+          display: 'flex',
+          gap: 8
+        }}>
+          <input
+            type="text"
+            placeholder="Search city... (e.g. Koper)"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSearch()}
+            style={{
+              flex: 1,
+              background: '#1a1a1a',
+              border: '1px solid #333',
+              borderRadius: 8,
+              padding: '8px 12px',
+              color: '#f0f0f0',
+              fontSize: 13,
+              outline: 'none',
+            }}
+          />
+          <button
+            onClick={handleSearch}
+            style={{
+              background: '#e8ff47',
+              color: '#000',
+              border: 'none',
+              borderRadius: 8,
+              padding: '8px 14px',
+              fontWeight: 700,
+              fontSize: 13,
+              cursor: 'pointer',
+            }}
+          >Go</button>
+        </div>
+
         <div style={{
           padding: '8px 16px',
           borderBottom: '1px solid #222',
@@ -172,11 +267,17 @@ export default function App() {
               boxShadow: dataSource === 'live' ? '0 0 6px #22c55e' : 'none'
             }} />
             <span style={{ fontSize: 11, color: '#555' }}>
-              {dataSource === 'live' ? '🇫🇷 Live data — France' : 'Demo data'}
+              {dataSource === 'live' ? '🇫🇷🇸🇮 Live data' : 'Demo data'}
             </span>
           </div>
           <button
-            onClick={getUserLocation}
+            onClick={() => {
+              setSearchQuery('')
+              setSearchLocation(null)
+              setActiveLocation(userLocation)
+              setMapTarget(userLocation ? [userLocation.lat, userLocation.lng] : [46.0569, 14.5058])
+              setMapZoom(12)
+            }}
             style={{
               background: locationStatus === 'granted' ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.05)',
               border: '1px solid',
@@ -186,14 +287,9 @@ export default function App() {
               borderRadius: 20,
               fontSize: 11,
               cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5
             }}
           >
-            {locationStatus === 'asking' ? '⏳ Locating...' :
-             locationStatus === 'granted' ? '📍 Near me' :
-             '📍 Use my location'}
+            {locationStatus === 'granted' ? '📍 Near me' : '📍 Use my location'}
           </button>
         </div>
 
@@ -234,11 +330,7 @@ export default function App() {
         </div>
 
         <div className="stations-list">
-          {locationStatus === 'asking' ? (
-            <div style={{ color: '#555', fontSize: 13, textAlign: 'center', marginTop: 40, padding: '0 20px', lineHeight: 1.7 }}>
-              📍 Allow location access to see stations near you
-            </div>
-          ) : loading ? (
+          {loading ? (
             <div style={{ color: '#555', fontSize: 13, textAlign: 'center', marginTop: 40 }}>
               Fetching stations...
             </div>
@@ -256,6 +348,7 @@ export default function App() {
               <div className="station-info">
                 <div className="station-name">{station.name}</div>
                 <div className="station-brand">
+                  {station.flag && <span>{station.flag} </span>}
                   {station.city}
                   {station.distance ? ` · ${station.distance.toFixed(1)} km` : ''}
                 </div>
@@ -273,8 +366,8 @@ export default function App() {
 
       <div className="map-wrap">
         <MapContainer
-          center={[46.6034, 1.8883]}
-          zoom={6}
+          center={[46.0569, 14.5058]}
+          zoom={10}
           style={{ width: '100%', height: '100%' }}
         >
           <TileLayer
@@ -308,7 +401,9 @@ export default function App() {
               <Popup>
                 <div style={{ fontFamily: 'sans-serif', minWidth: 160 }}>
                   <strong style={{ fontSize: 14 }}>{station.name}</strong><br />
-                  <span style={{ color: '#888', fontSize: 12 }}>{station.city}</span>
+                  <span style={{ color: '#888', fontSize: 12 }}>
+                    {station.flag} {station.city}
+                  </span>
                   {station.distance && <span style={{ color: '#888', fontSize: 12 }}> · {station.distance.toFixed(1)} km away</span>}
                   <br /><br />
                   {station.gazole && <div>⛽ Diesel: <strong style={{ color: getPriceColor(station.gazole) }}>€{station.gazole.toFixed(2)}</strong></div>}
