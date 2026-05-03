@@ -172,11 +172,12 @@ async function geocodeCity(city) {
   } catch { return null }
 }
 
-async function fetchStations(fuel, lat, lng, bbox = null) {
+async function fetchStations(fuel, lat, lng, bbox = null, citySearch = false) {
   try {
     let url = `${API_URL}/api/stations?fuel=${fuel}`
     if (lat && lng) url += `&lat=${lat}&lng=${lng}`
     if (bbox) url += `&bbox=${bbox.minLat},${bbox.minLng},${bbox.maxLat},${bbox.maxLng}`
+    if (citySearch) url += `&citySearch=1`
     const res = await fetch(url)
     if (!res.ok) throw new Error('API error')
     return await res.json()
@@ -207,6 +208,7 @@ export default function App() {
   const [sheetOpen, setSheetOpen]         = useState(false)
   const [regionBbox, setRegionBbox]       = useState(null)
   const [regionName, setRegionName]       = useState(null)
+  const [citySearchMode, setCitySearchMode] = useState(false)
 
   useEffect(() => {
     getUserLocation()
@@ -223,9 +225,9 @@ export default function App() {
 
   useEffect(() => {
     if (locationStatus === 'granted' || locationStatus === 'denied') {
-      loadStations(activeLocation, regionBbox)
+      loadStations(activeLocation, regionBbox, citySearchMode)
     }
-  }, [activeTab, activeLocation, locationStatus, regionBbox])
+  }, [activeTab, activeLocation, locationStatus, regionBbox, citySearchMode])
 
   useEffect(() => {
     if (!stations.length) return
@@ -269,6 +271,7 @@ export default function App() {
       setMapZoom(12)
       setRegionBbox(r.bbox)
       setRegionName(searchQuery.trim())
+      setCitySearchMode(true)
     } else {
       alert('City not found.')
       setLoading(false)
@@ -279,6 +282,7 @@ export default function App() {
     setRegionBbox(null)
     setRegionName(null)
     setSearchQuery('')
+    setCitySearchMode(false)
   }
 
   async function handleNavGo() {
@@ -305,10 +309,10 @@ export default function App() {
     setNavNote(`Route set to ${cheapest.name}.`)
   }
 
-  async function loadStations(location, bbox = null) {
+  async function loadStations(location, bbox = null, citySearch = false) {
     setLoading(true)
     setSelected(null)
-    const data = await fetchStations(activeTab, location?.lat || null, location?.lng || null, bbox)
+    const data = await fetchStations(activeTab, location?.lat || null, location?.lng || null, bbox, citySearch)
     if (data.length > 0) {
       setStations(data)
       setDataSource('live')
@@ -504,6 +508,7 @@ export default function App() {
               className={`pill-btn ${locationStatus === 'granted' && !regionName ? 'on' : ''}`}
               onClick={() => {
                 clearRegion()
+                setCitySearchMode(false)
                 setActiveLocation(userLocation)
                 if (userLocation) { setMapTarget([userLocation.lat, userLocation.lng]); setMapZoom(12) }
                 getUserLocation()

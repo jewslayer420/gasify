@@ -27,17 +27,23 @@ function getDistance(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-async function fetchFranceStations(fuel, bbox = null) {
+// cityCenter: { lat, lng } — when set, uses a 15 km radius distance filter (more reliable than bbox for city queries)
+// bbox: used only for map-viewport filtering when no city is active
+async function fetchFranceStations(fuel, bbox = null, cityCenter = null) {
   try {
     const priceField = fuel + '_prix'
     let where = `${priceField} IS NOT NULL AND geom IS NOT NULL`
+    let limit = 100
 
-    // Use the ODS spatial filter when a region bbox is provided — avoids fetching all of France
-    if (bbox) {
+    if (cityCenter) {
+      // ODS distance() filter: POINT takes (longitude latitude)
+      where += ` AND distance(geom, GEOM 'POINT(${cityCenter.lng} ${cityCenter.lat})', 15000)`
+      limit = 300
+    } else if (bbox) {
       where += ` AND within_bbox(geom, ${bbox.minLat}, ${bbox.minLng}, ${bbox.maxLat}, ${bbox.maxLng})`
+      limit = 200
     }
 
-    const limit = bbox ? 200 : 100
     const url = `https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records?where=${encodeURIComponent(where)}&limit=${limit}&timezone=Europe%2FParis`
 
     const res = await fetch(url, {
@@ -128,10 +134,11 @@ async function fetchSloveniaStations(fuel, bbox = null) {
 
 app.get('/api/stations', async (req, res) => {
   try {
-    const fuel     = req.query.fuel || 'gazole'
-    const userLat  = parseFloat(req.query.lat) || null
-    const userLng  = parseFloat(req.query.lng) || null
-    const bboxRaw  = req.query.bbox // "minLat,minLng,maxLat,maxLng"
+    const fuel       = req.query.fuel || 'gazole'
+    const userLat    = parseFloat(req.query.lat) || null
+    const userLng    = parseFloat(req.query.lng) || null
+    const bboxRaw    = req.query.bbox    // "minLat,minLng,maxLat,maxLng"
+    const citySearch = req.query.citySearch === '1'
 
     // Parse bbox
     let bbox = null
@@ -143,14 +150,18 @@ app.get('/api/stations', async (req, res) => {
       }
     }
 
-    // Only call APIs for countries that overlap with the requested bbox
+    // In city-search mode, use the provided lat/lng as the city center for a distance filter.
+    // This is more reliable than bbox for the France ODS API.
+    const cityCenter = (citySearch && userLat && userLng) ? { lat: userLat, lng: userLng } : null
+
+    // Only call APIs for countries that overlap with the requested bbox (or call both when no bbox)
     const needFR = !bbox || overlaps(bbox, COUNTRY_BBOX.FR)
     const needSI = !bbox || overlaps(bbox, COUNTRY_BBOX.SI)
 
-    console.log(`fuel=${fuel} bbox=${bboxRaw || 'none'} → FR:${needFR} SI:${needSI}`)
+    console.log(`fuel=${fuel} bbox=${bboxRaw || 'none'} citySearch=${citySearch} → FR:${needFR} SI:${needSI}`)
 
     const [frStations, siStations] = await Promise.all([
-      needFR ? fetchFranceStations(fuel, bbox) : [],
+      needFR ? fetchFranceStations(fuel, bbox, cityCenter) : [],
       needSI ? fetchSloveniaStations(fuel, bbox) : [],
     ])
 
@@ -166,8 +177,14 @@ app.get('/api/stations', async (req, res) => {
       }))
     }
 
-    if (bbox) {
-      // Regional mode: filter to bbox, return all (no hard cap)
+    if (citySearch) {
+      // City mode: already filtered by distance on France side, apply bbox for Slovenia
+      // Sort by distance if available, else by price
+      stations.sort((a, b) =>
+        a.distance != null ? a.distance - b.distance : a.price - b.price
+      )
+    } else if (bbox) {
+      // Viewport mode: filter to bbox, return all sorted by distance/price
       stations = stations.filter(s =>
         s.lat >= bbox.minLat && s.lat <= bbox.maxLat &&
         s.lng >= bbox.minLng && s.lng <= bbox.maxLng
