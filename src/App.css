@@ -234,6 +234,18 @@ body {
 .live-dot.on { background: var(--green); box-shadow: 0 0 5px var(--green); }
 .live-dot.off { background: var(--orange); }
 
+.region-clear {
+  background: none;
+  border: none;
+  color: var(--t3);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.region-clear:hover { color: var(--t1); }
+
 .status-pills { display: flex; gap: 6px; }
 
 .pill-btn {

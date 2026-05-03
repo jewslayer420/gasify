@@ -159,15 +159,24 @@ async function geocodeCity(city) {
     const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=1`
     const res = await fetch(url, { headers: { 'User-Agent': 'Gasify/1.0' } })
     const data = await res.json()
-    if (data.length > 0) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
-    return null
+    if (!data.length) return null
+    const r = data[0]
+    const bb = r.boundingbox // [south, north, west, east]
+    const bbox = bb?.length === 4 ? {
+      minLat: parseFloat(bb[0]),
+      maxLat: parseFloat(bb[1]),
+      minLng: parseFloat(bb[2]),
+      maxLng: parseFloat(bb[3]),
+    } : null
+    return { lat: parseFloat(r.lat), lng: parseFloat(r.lon), bbox }
   } catch { return null }
 }
 
-async function fetchStations(fuel, lat, lng) {
+async function fetchStations(fuel, lat, lng, bbox = null) {
   try {
     let url = `${API_URL}/api/stations?fuel=${fuel}`
     if (lat && lng) url += `&lat=${lat}&lng=${lng}`
+    if (bbox) url += `&bbox=${bbox.minLat},${bbox.minLng},${bbox.maxLat},${bbox.maxLng}`
     const res = await fetch(url)
     if (!res.ok) throw new Error('API error')
     return await res.json()
@@ -196,6 +205,8 @@ export default function App() {
   const [open, setOpen]                   = useState({ insights: false, news: false })
   const [isNavigating, setIsNavigating]   = useState(false)
   const [sheetOpen, setSheetOpen]         = useState(false)
+  const [regionBbox, setRegionBbox]       = useState(null)
+  const [regionName, setRegionName]       = useState(null)
 
   useEffect(() => {
     getUserLocation()
@@ -212,9 +223,9 @@ export default function App() {
 
   useEffect(() => {
     if (locationStatus === 'granted' || locationStatus === 'denied') {
-      loadStations(activeLocation)
+      loadStations(activeLocation, regionBbox)
     }
-  }, [activeTab, activeLocation, locationStatus])
+  }, [activeTab, activeLocation, locationStatus, regionBbox])
 
   useEffect(() => {
     if (!stations.length) return
@@ -253,23 +264,31 @@ export default function App() {
     setLoading(true)
     const r = await geocodeCity(searchQuery)
     if (r) {
-      setActiveLocation(r)
+      setActiveLocation({ lat: r.lat, lng: r.lng })
       setMapTarget([r.lat, r.lng])
       setMapZoom(12)
+      setRegionBbox(r.bbox)
+      setRegionName(searchQuery.trim())
     } else {
       alert('City not found.')
       setLoading(false)
     }
   }
 
+  function clearRegion() {
+    setRegionBbox(null)
+    setRegionName(null)
+    setSearchQuery('')
+  }
+
   async function handleNavGo() {
     if (!navQuery.trim()) return
-    const r = await geocodeCity(navQuery)
+    const r = await geocodeCity(navQuery.trim())
     if (!r) { setNavNote('Destination not found.'); return }
     setMapTarget([r.lat, r.lng])
     setMapZoom(13)
-    setRouteDest({ lat: r.lat, lng: r.lng, label: navQuery })
-    setNavNote(`Route set to ${navQuery}.`)
+    setRouteDest({ lat: r.lat, lng: r.lng, label: navQuery.trim() })
+    setNavNote(`Route set to ${navQuery.trim()}.`)
   }
 
   function handleCheapestNearby() {
@@ -286,10 +305,10 @@ export default function App() {
     setNavNote(`Route set to ${cheapest.name}.`)
   }
 
-  async function loadStations(location) {
+  async function loadStations(location, bbox = null) {
     setLoading(true)
     setSelected(null)
-    const data = await fetchStations(activeTab, location?.lat || null, location?.lng || null)
+    const data = await fetchStations(activeTab, location?.lat || null, location?.lng || null, bbox)
     if (data.length > 0) {
       setStations(data)
       setDataSource('live')
@@ -469,15 +488,22 @@ export default function App() {
         <div className="status-row">
           <div className="status-live">
             <div className={`live-dot ${dataSource === 'live' ? 'on' : 'off'}`} />
-            <span>{dataSource === 'live' ? 'Live · Europe' : 'Demo data'}</span>
+            <span>
+              {dataSource === 'live'
+                ? `Live · ${regionName || 'Europe'}`
+                : 'Demo data'}
+            </span>
             <span style={{ margin: '0 2px', opacity: 0.3 }}>·</span>
             <span>{loading ? '…' : `${stations.length} stations`}</span>
+            {regionName && (
+              <button className="region-clear" onClick={clearRegion} title="Clear region filter">✕</button>
+            )}
           </div>
           <div className="status-pills">
             <button
-              className={`pill-btn ${locationStatus === 'granted' ? 'on' : ''}`}
+              className={`pill-btn ${locationStatus === 'granted' && !regionName ? 'on' : ''}`}
               onClick={() => {
-                setSearchQuery('')
+                clearRegion()
                 setActiveLocation(userLocation)
                 if (userLocation) { setMapTarget([userLocation.lat, userLocation.lng]); setMapZoom(12) }
                 getUserLocation()
